@@ -9,7 +9,7 @@
 
  <div align="center">
   <div>
-    <img alt="Aflah's Github Stats" src="https://github-readme-stats.vercel.app/api?username=mzuhairkhan&show_icons=true&theme=radical" />
+    <img alt="Zuhair's Github Stats" src="https://github-readme-stats.vercel.app/api?username=mzuhairkhan&show_icons=true&theme=radical" />
     <img alt="Top Languages" src="https://github-readme-stats.vercel.app/api/top-langs/?username=mzuhairkhan&theme=radical&layout=compact&hide=jupyter%20notebook,swig,dart"/>
     <br />
   </div>
