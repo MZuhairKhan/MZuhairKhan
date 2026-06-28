@@ -27,23 +27,28 @@ jobs:
 
           fetch_card() {
             url="$1"; out="$2"
-            tmp="$(mktemp)"
-            curl -fSsL --retry 6 --retry-delay 15 --retry-all-errors "$url" -o "$tmp"
-
-            # github-readme-stats returns ERROR cards with HTTP 200, so curl -f
-            # alone won't catch them. Validate before letting them overwrite the
-            # last good card.
-            if [ "$(wc -c < "$tmp")" -lt 500 ]; then
-              echo "::error::$out too small - refusing to commit"; exit 1
+            for attempt in 1 2 3; do
+              tmp="$(mktemp)"
+              if curl -fSsL --retry 3 --retry-delay 5 --retry-all-errors "$url" -o "$tmp" \
+                 && [ "$(wc -c < "$tmp")" -ge 500 ] \
+                 && grep -q '<svg' "$tmp" \
+                 && ! grep -qiE 'Something went wrong|Maximum retries exceeded|invalid username|could not fetch' "$tmp"; then
+                mv "$tmp" "$out"
+                echo "Fetched $out (attempt $attempt)"
+                return 0
+              fi
+              rm -f "$tmp"
+              echo "::warning::$out: bad or error response (attempt $attempt)"
+              if [ "$attempt" -lt 3 ]; then sleep 15; fi
+            done
+            # Couldn't get a clean card. If we already have one committed, keep it
+            # (the README keeps showing last-good) and let the run succeed.
+            if [ -f "$out" ]; then
+              echo "::warning::$out: could not refresh after 3 attempts - keeping last committed card"
+              return 0
             fi
-            if ! grep -q '<svg' "$tmp"; then
-              echo "::error::$out is not an SVG - refusing to commit"; exit 1
-            fi
-            if grep -qiE 'Something went wrong|Maximum retries exceeded|invalid username|could not fetch' "$tmp"; then
-              echo "::error::$out is an error card - refusing to commit"; exit 1
-            fi
-
-            mv "$tmp" "$out"
+            echo "::error::$out: could not fetch and no existing card to fall back on"
+            return 1
           }
 
           fetch_card \
@@ -52,6 +57,7 @@ jobs:
           fetch_card \
             "$base/api/top-langs/?username=mzuhairkhan&theme=radical&layout=compact&hide=jupyter%20notebook,swig,dart" \
             images/top-langs.svg
+
 
       - name: Commit if changed
         run: |
