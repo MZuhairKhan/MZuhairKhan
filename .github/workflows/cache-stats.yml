@@ -1,0 +1,67 @@
+name: Cache stat cards
+
+on:
+  schedule:
+    - cron: '23 4 * * *'   # daily, off the top of the hour (cron is delayed under load)
+  workflow_dispatch:
+
+permissions:
+  contents: write          # default GITHUB_TOKEN is read-only; needed to push
+
+concurrency:
+  group: cache-stats
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5   # node24 baseline; persists token so `git push` just works
+
+      - name: Fetch rendered cards
+        run: |
+          set -euo pipefail
+          mkdir -p images
+          base="https://github-readme-stats.vercel.app"
+
+          fetch_card() {
+            url="$1"; out="$2"
+            tmp="$(mktemp)"
+            curl -fSsL --retry 6 --retry-delay 15 --retry-all-errors "$url" -o "$tmp"
+
+            # github-readme-stats returns ERROR cards with HTTP 200, so curl -f
+            # alone won't catch them. Validate before letting them overwrite the
+            # last good card.
+            if [ "$(wc -c < "$tmp")" -lt 500 ]; then
+              echo "::error::$out too small - refusing to commit"; exit 1
+            fi
+            if ! grep -q '<svg' "$tmp"; then
+              echo "::error::$out is not an SVG - refusing to commit"; exit 1
+            fi
+            if grep -qiE 'Something went wrong|Maximum retries exceeded|invalid username|could not fetch' "$tmp"; then
+              echo "::error::$out is an error card - refusing to commit"; exit 1
+            fi
+
+            mv "$tmp" "$out"
+          }
+
+          fetch_card \
+            "$base/api?username=mzuhairkhan&show_icons=true&theme=radical" \
+            images/stats.svg
+          fetch_card \
+            "$base/api/top-langs/?username=mzuhairkhan&theme=radical&layout=compact&hide=jupyter%20notebook,swig,dart" \
+            images/top-langs.svg
+
+      - name: Commit if changed
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add images/stats.svg images/top-langs.svg
+          if git diff --cached --quiet; then
+            echo "No changes; nothing to commit."
+          else
+            git commit -m 'chore: refresh GitHub stat cards'
+            git push
+          fi
